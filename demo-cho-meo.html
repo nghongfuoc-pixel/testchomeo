@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Nhận diện Chó / Mèo</title>
+<style>
+  :root {
+    --ink: #1c1a17;
+    --paper: #f6f2ea;
+    --card: #ffffff;
+    --dog: #c9743a;
+    --cat: #4f6f52;
+    --line: #e4ddd0;
+    --muted: #8a8172;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 520px;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    color: var(--muted);
+    margin: 0 0 28px;
+    font-size: 15px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 28px;
+  }
+  .drop {
+    border: 2px dashed var(--line);
+    border-radius: 12px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .drop:hover, .drop.drag {
+    border-color: var(--dog);
+    background: #fbf6ee;
+  }
+  .drop p { margin: 0; color: var(--muted); font-size: 14px; }
+  .drop strong { color: var(--ink); }
+  input[type="file"] { display: none; }
+  #preview {
+    display: none;
+    width: 100%;
+    max-height: 300px;
+    object-fit: contain;
+    border-radius: 10px;
+    margin-top: 20px;
+  }
+  #results {
+    margin-top: 24px;
+    display: none;
+  }
+  .row {
+    margin-bottom: 14px;
+  }
+  .row:last-child { margin-bottom: 0; }
+  .row-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  .row-top .label { font-weight: 600; }
+  .bar-bg {
+    background: #efe9dd;
+    border-radius: 999px;
+    height: 10px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    width: 0%;
+    transition: width .5s ease;
+  }
+  .bar-fill.meo { background: var(--cat); }
+  .bar-fill.cho { background: var(--dog); }
+  #verdict {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 15px;
+    color: var(--muted);
+    display: none;
+  }
+  #verdict strong {
+    color: var(--ink);
+    font-size: 18px;
+  }
+  #status {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 18px;
+  }
+  .reset {
+    display: none;
+    margin: 18px auto 0;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .reset:hover { border-color: var(--ink); color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Nhận diện Chó / Mèo</h1>
+  <p class="sub">Model tự train bằng Teachable Machine — chạy hoàn toàn trên trình duyệt của bạn.</p>
+
+  <div class="card">
+    <label class="drop" id="dropZone">
+      <p><strong>Bấm để chọn ảnh</strong> hoặc kéo-thả ảnh vào đây</p>
+      <input type="file" id="fileInput" accept="image/*" />
+    </label>
+
+    <img id="preview" alt="Ảnh xem trước" />
+
+    <div id="results">
+      <div class="row">
+        <div class="row-top">
+          <span class="label">🐱 Mèo</span>
+          <span id="pctMeo">0%</span>
+        </div>
+        <div class="bar-bg"><div class="bar-fill meo" id="barMeo"></div></div>
+      </div>
+      <div class="row">
+        <div class="row-top">
+          <span class="label">🐶 Chó</span>
+          <span id="pctCho">0%</span>
+        </div>
+        <div class="bar-bg"><div class="bar-fill cho" id="barCho"></div></div>
+      </div>
+    </div>
+
+    <div id="verdict"></div>
+    <div id="status">Đang tải model...</div>
+    <button class="reset" id="resetBtn">Thử ảnh khác</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/4.10.0/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script>
+  // Class 1 = Mèo, Class 2 = Chó (theo thứ tự train trong Teachable Machine)
+  const LABEL_MAP = { "Class 1": "Mèo", "Class 2": "Chó" };
+
+  const modelURL = "model/model.json";
+  const metadataURL = "model/metadata.json";
+
+  let model;
+  const statusEl = document.getElementById("status");
+  const dropZone = document.getElementById("dropZone");
+  const fileInput = document.getElementById("fileInput");
+  const preview = document.getElementById("preview");
+  const results = document.getElementById("results");
+  const verdict = document.getElementById("verdict");
+  const resetBtn = document.getElementById("resetBtn");
+
+  async function loadModel() {
+    try {
+      model = await tmImage.load(modelURL, metadataURL);
+      statusEl.textContent = "Sẵn sàng — chọn một ảnh để bắt đầu.";
+    } catch (err) {
+      statusEl.textContent = "Không tải được model. Kiểm tra thư mục 'model' có nằm cùng chỗ với file HTML này không.";
+      console.error(err);
+    }
+  }
+  loadModel();
+
+  function handleFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      preview.src = e.target.result;
+      preview.style.display = "block";
+      preview.onload = () => predict(preview);
+    };
+    reader.readAsDataURL(file);
+    dropZone.style.display = "none";
+    resetBtn.style.display = "block";
+  }
+
+  async function predict(imgEl) {
+    if (!model) return;
+    statusEl.textContent = "Đang phân tích...";
+    const preds = await model.predict(imgEl);
+
+    let meoPct = 0, choPct = 0;
+    preds.forEach(p => {
+      const label = LABEL_MAP[p.className] || p.className;
+      const pct = Math.round(p.probability * 100);
+      if (label === "Mèo") meoPct = pct;
+      if (label === "Chó") choPct = pct;
+    });
+
+    document.getElementById("pctMeo").textContent = meoPct + "%";
+    document.getElementById("pctCho").textContent = choPct + "%";
+    document.getElementById("barMeo").style.width = meoPct + "%";
+    document.getElementById("barCho").style.width = choPct + "%";
+    results.style.display = "block";
+
+    const winner = meoPct >= choPct ? "Mèo 🐱" : "Chó 🐶";
+    const confidence = Math.max(meoPct, choPct);
+    verdict.innerHTML = `Model đoán đây là: <strong>${winner}</strong> (${confidence}% tin cậy)`;
+    verdict.style.display = "block";
+
+    statusEl.textContent = "";
+  }
+
+  dropZone.addEventListener("click", (e) => {
+    e.preventDefault();
+    fileInput.click();
+  });
+  fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
+
+  ["dragover", "dragenter"].forEach(evt =>
+    dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.add("drag"); })
+  );
+  ["dragleave", "drop"].forEach(evt =>
+    dropZone.addEventListener(evt, (e) => { e.preventDefault(); dropZone.classList.remove("drag"); })
+  );
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    handleFile(file);
+  });
+
+  resetBtn.addEventListener("click", () => {
+    preview.style.display = "none";
+    preview.src = "";
+    results.style.display = "none";
+    verdict.style.display = "none";
+    dropZone.style.display = "block";
+    resetBtn.style.display = "none";
+    fileInput.value = "";
+    statusEl.textContent = "Sẵn sàng — chọn một ảnh để bắt đầu.";
+  });
+</script>
+</body>
+</html>
