@@ -53,6 +53,8 @@
     text-align: center;
     cursor: pointer;
     transition: border-color .15s ease, background .15s ease;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .drop:hover, .drop.drag {
     border-color: var(--dog);
@@ -234,10 +236,7 @@
     statusEl.textContent = "";
   }
 
-  dropZone.addEventListener("click", (e) => {
-    e.preventDefault();
-    fileInput.click();
-  });
+  // dropZone là thẻ <label> gắn với input file, nên bấm vào sẽ tự mở hộp thoại chọn ảnh
   fileInput.addEventListener("change", (e) => handleFile(e.target.files[0]));
 
   ["dragover", "dragenter"].forEach(evt =>
